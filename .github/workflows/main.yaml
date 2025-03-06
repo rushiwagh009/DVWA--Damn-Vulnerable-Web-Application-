@@ -1,0 +1,61 @@
+on: [push]
+
+jobs:
+
+  dependency_analysis:
+    runs-on:  ubuntu-latest
+    name: Test dependencies for security flaws
+    steps:
+      - uses: actions/checkout@v2
+      - name: Dependency Security
+        run: pip3 install safety && safety check
+        shell: bash
+
+  code_analysis:
+    runs-on:  ubuntu-latest
+    name: Analyse code for security flaws
+    steps:
+      - uses: actions/checkout@v2
+      - name: Code Security Analysis
+        run: pip3 install semgrep && semgrep --config "p/ci" --error
+        shell: bash
+
+  
+  dynamic_security_testing:
+    runs-on: ubuntu-latest
+    name: Scan live web app for security flaws
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Start containers
+        run: docker-compose -f "docker-compose.yml" up -d --build
+
+      - name: Dynamic Security Testing
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: http://localhost:8080
+
+      - name: Stop containers
+        if: always()
+        run: docker-compose -f "docker-compose.yml" down
+
+  container_scanning:
+    name: Scan Container for Security Issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: Build an image from Dockerfile
+        run: |
+          docker build --file Dockerfile.app -t dvpwa.app:${{ github.sha }} .
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'dvpwa.app:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
